@@ -1,0 +1,13 @@
+# Caches
+**/__pycache__/
+**/*.pyc
+
+# Environments
+.env/
+venv/
+.venv/
+pyvenv.cfg
+
+# Logs
+logs/
+*.log
