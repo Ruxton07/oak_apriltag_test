@@ -14,7 +14,7 @@ def main():
         pipeline.start()
         
         while pipeline.isRunning():
-            frame = q.get().getCvFrame()
+            frame = q.get().getCvFrame() # type: ignore
             tag_detection.detect_apriltags(frame)
             cv2.imshow("OAK-D AprilTags", frame)
 

@@ -2,9 +2,7 @@ import cv2
 import numpy as np
 from pupil_apriltags import Detector
 
-from autoalign.target_selector import image_err, AlignError
-
-TAG_SIZE_M = 0.10  # this would be 10cm
+TAG_SIZE_M = 0.03  # 0.03 would be 3cm
 FRAME_WIDTH = 1920
 FRAME_HEIGHT = 1080
 FX = 1400.0
@@ -12,6 +10,22 @@ FY = 1400.0
 CX = FRAME_WIDTH / 2.0
 CY = FRAME_HEIGHT / 2.0
 CAMERA_PARAMS = (FX, FY, CX, CY)
+
+def wrap_to_pm90(angle_deg):
+    # wrap angle to [-90, 90] range (tag visibility not possible outside)
+    wrapped = ((angle_deg + 90) % 180) - 90
+    return wrapped
+
+def rot_matrix2_yp0r(R):
+    # compute yaw/pitch from the tag's forward z-axis expressed in camera coords
+    # yaw correspond to rotation about the tag's y-axis as seen by the camera
+    # pitch correspond to rotation about the tag's x-axis as seen by the camera
+    # assume 0 roll (TODO: may cause error if roll significant? still have to deal with gimbal lock if we try to compute roll)
+    z = np.array([R[0, 2], R[1, 2], R[2, 2]])
+    yaw = np.arctan2(z[0], z[2])
+    pitch = np.arctan2(-z[1], np.hypot(z[0], z[2]))
+
+    return wrap_to_pm90(np.degrees(yaw)), wrap_to_pm90(np.degrees(pitch))
 
 def valid_tag_shape(det, min_area=250, min_margin=30, max_aspect_ratio=4.0):
     corners = det.corners.astype(float)
@@ -47,21 +61,31 @@ detector = Detector(
     refine_edges=True,
 )
 
-
 def detect_apriltags(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    raw_detections = detector.detect(gray)
 
-    detections = [ det for det in raw_detections if valid_tag_shape(det) ]
+    raw_detections = detector.detect(
+        gray,
+        estimate_tag_pose=True,
+        camera_params=CAMERA_PARAMS,
+        tag_size=TAG_SIZE_M,
+    )
+    detections = [ det for det in raw_detections if valid_tag_shape(det) ] # type: ignore
     
     for det in detections:
-        error = image_err(det, frame.shape[1], frame.shape[0])
+        # compute pose
+        
+        pose_t = np.squeeze(det.pose_t)
+        yaw_deg, pitch_deg = rot_matrix2_yp0r(det.pose_R)
+
         print(
-            f"ID {det.tag_id} | "
-            f"x_error = {error.x:.1f} px | "
-            f"z_error = {error.z:.1f} px | "
-            f"yaw_error = {np.degrees(error.yaw):.1f} deg"
-            )
+            f"ID{det.tag_id} | "
+            f"pose_t =[{pose_t[0]:.3f}, {pose_t[1]:.3f}, {pose_t[2]:.3f}] m | "
+            f"yaw = {yaw_deg:.1f} deg | "
+            f"pitch = {pitch_deg:.1f} deg"
+        )
+        
+        # drawing detection on frame
         
         corners = det.corners.astype(int)
 
